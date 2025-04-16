@@ -1,5 +1,73 @@
 # **Spatially-Aware Textual Image Search**
 
+## **How to Run**
+
+**Prerequisites:**
+
+- Python 3.x
+- Install required libraries:
+  ```bash
+  pip install -r requirements.txt
+  ```
+
+**Steps:**
+
+1.  **Generate Synthetic Data:**
+
+    - Creates images, metadata (`image_metadata.json`), and test queries (`queries.json`) in the `./synthetic_data/` directory.
+    - Configuration is controlled by `config.py`.
+    - Command (run from project root):
+      ```bash
+      python data_generation/generate_synthetic_data.py
+      ```
+    - **Note:** This can take a significant amount of time, especially with a large `NUM_IMAGES` setting in `config.py`.
+
+2.  **Build Search Index:**
+
+    - Processes `image_metadata.json` to create the inverted index.
+    - Saves the index to `output/index.pkl` (or path specified in `config.py`).
+    - Command (run from project root):
+      ```bash
+      python search_engine/indexer.py
+      ```
+    - **Note:** This also takes time, proportional to the size of the metadata.
+
+3.  **Run a Search (Command Line):**
+
+    - Uses the built index to find and rank images based on text and optional spatial criteria.
+    - Command (run from project root):
+
+      ```bash
+      # Basic text search
+      python main_search.py "your search text"
+
+      # Spatial search (example: top 0-30%, left 50-100%)
+      python main_search.py "your search text" -r "top: 0-30, left: 50-100"
+
+      # Optional arguments: -n <num_results>, -i <index_path>, --build (to build index first)
+      ```
+
+4.  **Run Search Visualizer (GUI):**
+
+    - Provides a graphical interface to run searches and visualize results with overlays.
+    - Requires the index file (`output/index.pkl`) to exist.
+    - Command (run from project root):
+      ```bash
+      python visualize_search.py
+      ```
+
+5.  **Run Evaluation:**
+    - Compares the current search configuration against a non-spatial baseline using the generated queries.
+    - Calculates MAP and P@k, and performs a statistical significance test.
+    - Requires the index file and `queries.json` to exist.
+    - Command (run from project root):
+      ```bash
+      python evaluate.py
+      ```
+    - Optional arguments: `-k <value>`, `--queries <path>`, `--index <path>`.
+
+---
+
 ## **Project Description**
 
 This project proposes the development and evaluation of a spatially-aware textual image search engine. The system will leverage Optical Character Recognition (OCR) with word-level region detection (specifically utilizing pytesseract which wraps the Tesseract OCR engine) to index text present within images, along with its precise location and confidence score. Unlike traditional image search that relies primarily on visual content or simple keyword matching across the entire image, this system will enable users to search for specific text appearing within user-defined spatial regions of images.
