@@ -1,6 +1,9 @@
 import os
 import json
-import sys  # Added import
+import sys
+from concurrent.futures import ProcessPoolExecutor
+from functools import partial
+from typing import List, Tuple, Dict, Any
 
 # --- Adjust path to import from parent directory --- START
 # This allows running the script from the root directory or its own directory
@@ -12,7 +15,46 @@ if parent_dir not in sys.path:
 
 import config
 import data_generator
-from tqdm import tqdm  # Optional progress bar
+from tqdm import tqdm
+
+
+# --- Worker Function for Parallel Processing ---
+def process_single_image(
+    image_id: str, sentence_pool: List[str]
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    """Generates data for a single image. Intended to be run in a separate process."""
+    # 1. Generate Image and Word Metadata
+    image_meta = data_generator.generate_image_and_metadata(image_id, sentence_pool)
+
+    # 2. Calculate N-grams
+    if image_meta["word_data"]:
+        ngrams_data = data_generator.calculate_ngrams(image_meta["word_data"])
+    else:
+        ngrams_data = []
+    # Note: image_meta now contains the raw word_data which might include objects
+    # We need the cleaned version for JSON serialization later.
+
+    # Store image metadata (without word objects to keep JSON clean)
+    cleaned_image_meta = {
+        "image_id": image_meta["image_id"],
+        "width": image_meta["width"],
+        "height": image_meta["height"],
+        "image_path": image_meta["image_path"],
+        "word_data": [
+            {"text": wd["text"], "bbox_pixels": wd["bbox_pixels"]}
+            for wd in image_meta["word_data"]
+        ],
+        "ngrams": [
+            {"text": ng["text"], "bbox_pixels": ng["bbox_pixels"]} for ng in ngrams_data
+        ],
+    }
+
+    # 3. Generate Queries
+    image_queries = data_generator.generate_queries_for_image(
+        image_id, config.W, config.H, ngrams_data  # Pass ngrams with objects
+    )
+
+    return cleaned_image_meta, image_queries
 
 
 def main():
@@ -30,49 +72,32 @@ def main():
     sentence_pool = data_generator.generate_sentence_pool()
     print("Sentence pool generated.")
 
-    all_image_metadata = []
-    all_queries = []
+    all_image_metadata: List[Dict[str, Any]] = []
+    all_queries: List[Dict[str, Any]] = []
 
-    # --- Main Generation Loop ---
-    print(f"Generating {config.NUM_IMAGES} images and associated data...")
-    # Use tqdm for progress bar if available, otherwise just loop
+    # --- Main Generation Loop (Parallelized) ---
+    print(f"Generating {config.NUM_IMAGES} images and associated data (in parallel)...")
     image_ids = [f"synth_{i:03d}" for i in range(config.NUM_IMAGES)]
-    iterator = tqdm(image_ids) if "tqdm" in globals() else image_ids
 
-    for image_id in iterator:
-        # 1. Generate Image and Word Metadata
-        image_meta = data_generator.generate_image_and_metadata(image_id, sentence_pool)
+    # Prepare partial function with fixed sentence_pool argument
+    worker_func = partial(process_single_image, sentence_pool=sentence_pool)
 
-        # 2. Calculate N-grams
-        if image_meta["word_data"]:
-            ngrams_data = data_generator.calculate_ngrams(image_meta["word_data"])
-        else:
-            ngrams_data = []
-        image_meta["ngrams"] = ngrams_data  # Add ngrams to the image metadata
+    # Use ProcessPoolExecutor to run tasks in parallel
+    with ProcessPoolExecutor() as executor:
+        # Use executor.map and wrap with tqdm for progress
+        # The map function returns results in the order tasks were submitted
+        results_iterator = executor.map(worker_func, image_ids)
 
-        # Store image metadata (without word objects to keep JSON clean)
-        # The essential info is bbox and text
-        clean_image_meta = {
-            "image_id": image_meta["image_id"],
-            "width": image_meta["width"],
-            "height": image_meta["height"],
-            "image_path": image_meta["image_path"],
-            "word_data": [
-                {"text": wd["text"], "bbox_pixels": wd["bbox_pixels"]}
-                for wd in image_meta["word_data"]
-            ],
-            "ngrams": [
-                {"text": ng["text"], "bbox_pixels": ng["bbox_pixels"]}
-                for ng in ngrams_data
-            ],
-        }
-        all_image_metadata.append(clean_image_meta)
-
-        # 3. Generate Queries
-        image_queries = data_generator.generate_queries_for_image(
-            image_id, config.W, config.H, ngrams_data
-        )
-        all_queries.extend(image_queries)
+        # Process results as they complete
+        for result in tqdm(
+            results_iterator,
+            total=len(image_ids),
+            desc="Processing Images",
+            unit="image",
+        ):
+            cleaned_meta, queries = result
+            all_image_metadata.append(cleaned_meta)
+            all_queries.extend(queries)
 
     # --- Save Metadata and Queries ---
     print(f"Saving metadata to {config.IMAGE_METADATA_FILE}...")
