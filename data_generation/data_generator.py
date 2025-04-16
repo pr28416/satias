@@ -88,6 +88,45 @@ def generate_image_and_metadata(image_id, sentence_pool):
                     for i, word in enumerate(phrase_words):
                         words.insert(insert_index + i, word)
 
+    # --- Replace some words with NOTABLE_WORDS (Optional) ---
+    if (
+        config.NOTABLE_WORDS
+        and random.random() < config.NOTABLE_WORD_REPLACE_PROBABILITY
+    ):
+        if words:  # Only proceed if there are words to replace
+            num_word_types_to_use = min(
+                len(config.NOTABLE_WORDS), config.MAX_NOTABLE_WORD_TYPES_TO_USE
+            )
+            if num_word_types_to_use > 0:
+                words_to_use = random.sample(
+                    config.NOTABLE_WORDS, num_word_types_to_use
+                )
+
+                indices_to_replace = random.sample(
+                    range(len(words)),
+                    k=min(
+                        len(words),
+                        num_word_types_to_use * config.MAX_REPLACEMENTS_PER_TYPE,
+                    ),
+                )  # Estimate max replacements needed
+
+                replacements_done = 0
+                target_replacements = random.randint(
+                    config.MIN_REPLACEMENTS_PER_TYPE * num_word_types_to_use,
+                    len(indices_to_replace),
+                )
+
+                current_word_type_index = 0
+                for idx in indices_to_replace:
+                    if replacements_done >= target_replacements:
+                        break
+                    # Replace word at index idx with a notable word, cycle through chosen notable words
+                    words[idx] = words_to_use[
+                        current_word_type_index % len(words_to_use)
+                    ]
+                    current_word_type_index += 1
+                    replacements_done += 1
+
     # Shuffle slightly to break up obvious sentence structure if phrases were added
     # (Optional, can be commented out if structure is preferred)
     # random.shuffle(words)

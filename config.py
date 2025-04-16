@@ -3,22 +3,22 @@ import os
 # --- Image Generation ---
 W = 640  # Image Width (pixels)
 H = 360  # Image Height (pixels)
-NUM_IMAGES = 50  # Number of images to generate
+NUM_IMAGES = 2000  # Number of images to generate
 # Attempt to use a common default font, adjust if not found on your system
 # On macOS, common paths include "/System/Library/Fonts/Helvetica.ttc"
 # On Linux, common paths include "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 # On Windows, common paths include "C:/Windows/Fonts/arial.ttf"
 # If None, Pillow's default will be used, which might be basic.
 FONT_PATH = "/System/Library/Fonts/Supplemental/Arial.ttf"  # Or specify a path like "/System/Library/Fonts/Helvetica.ttc"
-FONT_SIZE = 16
+FONT_SIZE = 14
 MARGIN = 10  # Pixels
 WORD_SPACING = 5  # Pixels between words on the same line
 LINE_SPACING_FACTOR = 1.4  # Multiplier for line height
 
 # --- Text Generation ---
-NUM_SENTENCES_IN_POOL = 200  # Size of the pool to sample from
+NUM_SENTENCES_IN_POOL = 1500  # Size of the pool to sample from
 MIN_SENTENCES_PER_IMAGE = 15
-MAX_SENTENCES_PER_IMAGE = 25
+MAX_SENTENCES_PER_IMAGE = 35
 # Add configuration for injecting specific test phrases
 TEST_PHRASES = ["special offer", "limited time", "click here now", "important update"]
 TEST_PHRASE_INJECTION_PROBABILITY = 0.3  # 30% chance to inject phrases into an image
@@ -86,7 +86,7 @@ NGRAM_MIN = 1
 NGRAM_MAX = 3
 
 # --- Query Generation ---
-NUM_QUERIES_PER_IMAGE = 10
+NUM_QUERIES_PER_IMAGE = 25
 # Target distribution for query types (should sum roughly to 1.0)
 QUERY_TYPE_DISTRIBUTION = {
     "No Region": 0.20,

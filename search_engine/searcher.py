@@ -11,6 +11,7 @@ def search_images(
     query_ngrams: List[str],
     query_bbox_norm: List[float],
     inverted_index: Optional[InvertedIndexType],
+    is_baseline_search: bool = False,
 ) -> DefaultDict[str, float]:
     """Searches the index for query n-grams and calculates scores for images.
 
@@ -42,7 +43,9 @@ def search_images(
 
             for image_id, ngram_bbox_norm in locations:
                 spatial_score_component: float
-                if is_non_spatial_query:
+                if is_baseline_search:
+                    spatial_score_component = 1.0
+                elif is_non_spatial_query:
                     # For non-spatial query, spatial component is effectively 1.0
                     spatial_score_component = 1.0
                 else:
