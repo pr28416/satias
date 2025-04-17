@@ -1,6 +1,6 @@
 from collections import defaultdict
 from . import utils  # Relative import
-from typing import List, Tuple, Dict, DefaultDict, Optional  # Added imports
+from typing import List, Tuple, Dict, DefaultDict, Optional, Set  # Added Set import
 import config  # Added import
 
 # Import the type alias from indexer
@@ -11,9 +11,9 @@ def search_images(
     query_ngrams: List[str],
     query_bbox_norm: List[float],
     inverted_index: Optional[InvertedIndexType],
-    is_baseline_search: bool = False,
+    search_mode: str = "spatial",
 ) -> DefaultDict[str, float]:
-    """Searches the index for query n-grams and calculates scores for images.
+    """Searches the index for query terms and calculates scores for images based on search mode.
 
     Args:
         query_ngrams (list[str]): The list of n-grams from the parsed query.
@@ -24,12 +24,45 @@ def search_images(
         defaultdict(float): A dictionary mapping image_id to its accumulated score.
                           Returns empty dict if index is None or query_ngrams is empty.
     """
-    if not inverted_index or not query_ngrams:
+    if not inverted_index:
         return defaultdict(float)
 
     image_scores: DefaultDict[str, float] = defaultdict(float)
     default_bbox: List[float] = [0.0, 0.0, 100.0, 100.0]
     is_non_spatial_query: bool = query_bbox_norm == default_bbox
+
+    # --- Keyword Only Logic ---
+    if search_mode == "keyword_only":
+        if not query_ngrams:
+            return image_scores  # Need some text input
+        # Derive unique words from the first ngram (original query text)
+        # Assumes query_ngrams list isn't empty if we reached here
+        original_query_text = (
+            query_ngrams[0]
+            if len(query_ngrams[0].split()) == 1
+            else next(
+                (ng for ng in query_ngrams if len(ng.split()) > 1), query_ngrams[0]
+            )
+        )  # Heuristic to get multi-word text if possible
+        # TODO: A better way might be to pass the original query text directly into this function
+        unique_query_words: Set[str] = set(original_query_text.split())
+        if not unique_query_words:
+            return image_scores
+
+        # print(f"[DEBUG] Keyword search for: {unique_query_words}")
+        for word in unique_query_words:
+            if word in inverted_index:
+                # Find all unique image IDs where this word appears
+                image_ids_with_word: Set[str] = {loc[0] for loc in inverted_index[word]}
+                for image_id in image_ids_with_word:
+                    image_scores[
+                        image_id
+                    ] += 1.0  # Increment score for each unique query word found
+        return image_scores
+
+    # --- N-gram Based Logic (Spatial or Ngram Text Only) ---
+    if not query_ngrams:  # Check for n-grams needed for other modes
+        return image_scores
 
     # print(f"Searching for {len(query_ngrams)} n-grams...")
     # print(f"Query region: {query_bbox_norm}, Non-spatial: {is_non_spatial_query}")
@@ -43,7 +76,9 @@ def search_images(
 
             for image_id, ngram_bbox_norm in locations:
                 spatial_score_component: float
-                if is_baseline_search:
+                if (
+                    search_mode == "ngram_text_only"
+                ):  # N-gram baseline ignores spatial info
                     spatial_score_component = 1.0
                 elif is_non_spatial_query:
                     # For non-spatial query, spatial component is effectively 1.0
