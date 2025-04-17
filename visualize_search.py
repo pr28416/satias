@@ -395,32 +395,133 @@ class SearchVisualizerApp:
             self.on_frame_configure()  # Update scroll region even if empty
             return
 
+        # --- Determine sections to display ---
+        total_results = len(ranked_results)
+        num_section_results = 15
+        results_to_display: List[Tuple[str, List[Tuple[str, float]]]] = (
+            []
+        )  # (title, results_slice)
+
+        # Top section
+        top_slice = ranked_results[:num_section_results]
+        results_to_display.append(
+            (f"Top Results (Rank 1-{len(top_slice)})", top_slice, 1)
+        )
+
+        # Middle section (avoid overlap with top/last if possible)
+        middle_start_rank = -1
+        if (
+            total_results > num_section_results * 2
+        ):  # Only show distinct middle if enough results
+            middle_index = total_results // 2
+            middle_start_idx = max(
+                num_section_results, middle_index - num_section_results // 2
+            )  # Ensure it starts after top 15
+            middle_start_idx = min(
+                middle_start_idx, total_results - num_section_results * 2
+            )  # Ensure space for last 15
+            middle_end_idx = middle_start_idx + num_section_results
+            middle_slice = ranked_results[middle_start_idx:middle_end_idx]
+            middle_start_rank = middle_start_idx + 1
+            results_to_display.append(
+                (
+                    f"Middle Results (Rank {middle_start_rank}-{middle_start_rank + len(middle_slice) - 1})",
+                    middle_slice,
+                    middle_start_rank,
+                )
+            )
+
+        # Last section (avoid overlap with middle if middle was distinct)
+        last_start_rank = -1
+        if (
+            total_results > num_section_results
+        ):  # Only show if more than 15 results total
+            last_start_idx = max(0, total_results - num_section_results)
+            # Ensure it doesn't overlap with the *displayed* middle section if that section wasn't the true end
+            if middle_start_rank != -1 and last_start_idx < (
+                middle_start_rank + len(middle_slice) - 1
+            ):
+                pass  # Don't display last section if it overlaps with middle section shown
+            else:
+                last_slice = ranked_results[last_start_idx:]
+                last_start_rank = last_start_idx + 1
+                # Prevent adding identical slice if total_results <= 15
+                if last_start_rank > 1:
+                    results_to_display.append(
+                        (
+                            f"Last Results (Rank {last_start_rank}-{total_results})",
+                            last_slice,
+                            last_start_rank,
+                        )
+                    )
+
+        # --- Display results section by section ---
+        self._current_grid_row = 0  # Keep track of grid row across sections
+        self._current_grid_col = 0
+
+        for title, results_slice, start_rank in results_to_display:
+            self.display_results_section(
+                results_slice, title, start_rank, query_ngrams, query_bbox_norm
+            )
+
+        # Make result cells resize width with window
+        for c in range(RESULTS_PER_ROW):
+            self.results_frame.columnconfigure(c, weight=1)
+
+        # Update scroll region after adding all widgets
+        self.root.update_idletasks()
+        self.on_frame_configure()
+
+    # --- Helper to display a section ---
+    def display_results_section(
+        self,
+        results_slice: List[Tuple[str, float]],
+        section_title: str,
+        start_rank: int,
+        query_ngrams: List[str],
+        query_bbox_norm: List[float],
+    ) -> None:
+        """Adds a section header and displays results in the grid."""
+
+        # Add section header spanning columns
+        header = ttk.Label(
+            self.results_frame, text=section_title, font=("TkDefaultFont", 12, "bold")
+        )
+        header.grid(
+            row=self._current_grid_row,
+            column=0,
+            columnspan=RESULTS_PER_ROW,
+            pady=(15, 5),
+            sticky=tk.W,
+        )
+        self._current_grid_row += 1
+        self._current_grid_col = 0  # Reset column for new section
+
         # --- Gather details and display results ---
-        num_results_to_display = 15  # Or make this configurable
-        row, col = 0, 0
-        for i, (image_id, score) in enumerate(ranked_results[:num_results_to_display]):
+        for i, (image_id, score) in enumerate(results_slice):
+            current_rank = start_rank + i
             # Gather details needed for visualization
             found_details: List[Dict[str, Any]] = []
             # --- Gather details for ALL query ngrams found in this ranked image ---
-            for ngram in query_ngrams:
-                if ngram in self.inverted_index:
-                    for found_id, found_bbox_norm in self.inverted_index[ngram]:
-                        if found_id == image_id:
-                            # Calculate IoU for this specific occurrence
-                            iou = utils.calculate_iou(query_bbox_norm, found_bbox_norm)
-                            # Append details regardless of IoU value
-                            found_details.append(
-                                {
-                                    "text": ngram,
-                                    "bbox_norm": found_bbox_norm,
-                                    "iou": iou,  # Will be 0 if no overlap
-                                }
-                            )
+            if self.inverted_index:  # Check index exists
+                for ngram in query_ngrams:
+                    if ngram in self.inverted_index:
+                        for found_id, found_bbox_norm in self.inverted_index[ngram]:
+                            if found_id == image_id:
+                                # Calculate IoU for this specific occurrence
+                                iou = utils.calculate_iou(
+                                    query_bbox_norm, found_bbox_norm
+                                )
+                                # Append details regardless of IoU value
+                                found_details.append(
+                                    {
+                                        "text": ngram,
+                                        "bbox_norm": found_bbox_norm,
+                                        "iou": iou,  # Will be 0 if no overlap
+                                    }
+                                )
 
             image_path = os.path.join(config.IMAGE_DIR, f"{image_id}.png")
-            print(
-                f"[DEBUG GUI] Visualizing image {image_id} with query_bbox_norm: {query_bbox_norm}"
-            )  # DEBUG PRINT 3
             vis_photo = self.create_visualization(
                 image_path, query_bbox_norm, found_details
             )
@@ -430,7 +531,11 @@ class SearchVisualizerApp:
                 self.results_frame, padding="10"
             )  # Increased padding, removed border
             result_cell.grid(
-                row=row, column=col, padx=10, pady=10, sticky=tk.NSEW
+                row=self._current_grid_row,
+                column=self._current_grid_col,
+                padx=10,
+                pady=10,
+                sticky=tk.NSEW,
             )  # Increased padding
 
             if vis_photo:
@@ -443,24 +548,22 @@ class SearchVisualizerApp:
 
             # Add Rank Label
             ttk.Label(
-                result_cell, text=f"Rank: {i + 1}", font=("TkDefaultFont", 10, "bold")
+                result_cell,
+                text=f"Rank: {current_rank}",
+                font=("TkDefaultFont", 10, "bold"),
             ).pack()
             ttk.Label(result_cell, text=f"ID: {image_id}").pack()
             ttk.Label(result_cell, text=f"Score: {score:.4f}").pack()
 
             # Update grid position
-            col += 1
-            if col >= RESULTS_PER_ROW:
-                col = 0
-                row += 1
+            self._current_grid_col += 1
+            if self._current_grid_col >= RESULTS_PER_ROW:
+                self._current_grid_col = 0
+                self._current_grid_row += 1
 
-        # Make result cells resize width with window
-        for c in range(RESULTS_PER_ROW):
-            self.results_frame.columnconfigure(c, weight=1)
-
-        # Update scroll region after adding all widgets
-        self.root.update_idletasks()
-        self.on_frame_configure()
+        # Ensure next section starts on a new row if current row wasn't filled
+        if self._current_grid_col != 0:
+            self._current_grid_row += 1
 
 
 # --- Main ---
