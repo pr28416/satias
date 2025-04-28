@@ -5,3 +5,14 @@ __pycache__/
 venv/
 .venv/
 synthetic_data/
+# LaTeX generated files
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.pdf
+*.synctex.gz
+.DS_Store
