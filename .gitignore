@@ -13,6 +13,5 @@ synthetic_data/
 *.fls
 *.log
 *.out
-*.pdf
 *.synctex.gz
 .DS_Store
