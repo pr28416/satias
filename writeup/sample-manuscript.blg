@@ -1,0 +1,75 @@
+This is BibTeX, Version 0.99d (TeX Live 2023)
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: sample-manuscript.aux
+The style file: ACM-Reference-Format.bst
+Reallocated singl_function (elt_size=4) to 100 items from 50.
+Reallocated singl_function (elt_size=4) to 100 items from 50.
+Reallocated wiz_functions (elt_size=4) to 6000 items from 3000.
+Database file #1: references.bib
+Reallocated singl_function (elt_size=4) to 100 items from 50.
+Reallocated glb_str_ptr (elt_size=4) to 20 items from 10.
+Reallocated global_strs (elt_size=200001) to 20 items from 10.
+Reallocated glb_str_end (elt_size=4) to 20 items from 10.
+Reallocated singl_function (elt_size=4) to 100 items from 50.
+Reallocated wiz_functions (elt_size=4) to 9000 items from 6000.
+Warning--no number and no volume in Bai24
+Warning--page numbers missing in both pages and numpages fields in Bai24
+Warning--no number and no volume in Cao23
+Warning--page numbers missing in both pages and numpages fields in Cao23
+Warning--empty publisher in Chen23
+Warning--empty address in Chen23
+Warning--page numbers missing in both pages and numpages fields in Chen23
+Warning--empty publisher in Huang24
+Warning--empty address in Huang24
+Warning--page numbers missing in both pages and numpages fields in Huang24
+Warning--empty publisher in Mai17
+Warning--empty address in Mai17
+Warning--empty address in Manmatha00
+Warning--page numbers missing in both pages and numpages fields in Manmatha00
+Warning--no number and no volume in Nguyen25
+Warning--page numbers missing in both pages and numpages fields in Nguyen25
+Warning--empty publisher in Yin24
+Warning--empty address in Yin24
+Warning--page numbers missing in both pages and numpages fields in Yin24
+You've used 8 entries,
+            6056 wiz_defined-function locations,
+            1536 strings with 19829 characters,
+and the built_in function-call counts, 9060 in all, are:
+= -- 1034
+> -- 352
+< -- 0
++ -- 119
+- -- 111
+* -- 694
+:= -- 870
+add.period$ -- 37
+call.type$ -- 8
+change.case$ -- 68
+chr.to.int$ -- 8
+cite$ -- 27
+duplicate$ -- 805
+empty$ -- 574
+format.name$ -- 143
+if$ -- 2189
+int.to.chr$ -- 2
+int.to.str$ -- 1
+missing$ -- 37
+newline$ -- 126
+num.names$ -- 56
+pop$ -- 409
+preamble$ -- 1
+purify$ -- 132
+quote$ -- 0
+skip$ -- 266
+stack$ -- 0
+substring$ -- 492
+swap$ -- 48
+text.length$ -- 0
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 198
+warning$ -- 19
+while$ -- 27
+width$ -- 0
+write$ -- 207
+(There were 19 warnings)
