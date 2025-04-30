@@ -19,6 +19,12 @@ import config
 from search_engine import indexer, query_parser, searcher, utils
 from search_engine.indexer import InvertedIndexType
 
+# For storing sensitivity analysis results
+sensitivity_results = {
+    "weight_configs": [],  # Will store [iou_weight, prox_weight] pairs
+    "metrics": []          # Will store corresponding metrics for each config
+}
+
 # --- Helper Functions ---
 
 
@@ -63,29 +69,35 @@ def calculate_average_precision(ranked_ids: List[str], target_id: str) -> float:
 # --- Main Evaluation Logic ---
 
 
-def run_evaluation(queries_path: str, index_path: str, k: int) -> Tuple[
+K_VALUES = [1, 5, 10]  # Define the k values to evaluate
+
+
+def run_evaluation(queries_path: str, index_path: str) -> Tuple[
+    Optional[float],  # Config MAP
+    Optional[Dict[int, float]],  # Config P@k dict
+    Optional[float],  # N-gram Baseline MAP
+    Optional[Dict[int, float]],  # N-gram Baseline P@k dict
+    Optional[float],  # Keyword Baseline MAP
+    Optional[Dict[int, float]],  # Keyword Baseline P@k dict
     Optional[float],
-    Optional[float],  # Config MAP, P@k
     Optional[float],
-    Optional[float],  # N-gram Baseline MAP, P@k
-    Optional[float],
-    Optional[float],  # Keyword Baseline MAP, P@k
-    Optional[float],
-    Optional[float],  # p-value (config vs ngram), p-value (ngram vs keyword)
+    Optional[float],  # p-value (cfg vs ngram), (ngram vs key), (cfg vs key)
     Optional[int],  # num_valid_queries
+    Optional[List[float]]  # AP scores for statistical comparison
 ]:
     """Runs the evaluation process and returns MAP/P@k for all configs and p-values.
 
     Args:
         queries_path: Path to the queries JSON file.
         index_path: Path to the search index file.
-        k: The cutoff rank for P@k and MAP.
 
     Returns:
-        A tuple (map_cfg, pk_cfg, map_ngram, pk_ngram, map_key, pk_key, pval1, pval2, num_valid).
+        A tuple (map_cfg, pk_cfg_dict, map_ngram, pk_ngram_dict, map_key, pk_key_dict,
+                 pval1, pval2, pval3, num_valid).
         Returns (None, ..., None) on error.
     """
     print("--- Starting Evaluation ---")
+    print(f"Evaluating for k values: {K_VALUES}")
 
     # --- Load Queries ---
     print(f"Loading queries from: {queries_path}...")
@@ -95,26 +107,29 @@ def run_evaluation(queries_path: str, index_path: str, k: int) -> Tuple[
         print(f"Loaded {len(queries)} queries.")
     except FileNotFoundError:
         print(f"Error: Queries file not found at {queries_path}")
-        return None, None, None, None, None, None, None, None, 0
+        return None, None, None, None, None, None, None, None, None, 0, None
     except json.JSONDecodeError:
         print(f"Error: Could not decode JSON from {queries_path}")
-        return None, None, None, None, None, None, None, None, 0
+        return None, None, None, None, None, None, None, None, None, 0, None
 
     # --- Load Index ---
     print(f"Loading index from: {index_path}...")
     inverted_index: Optional[InvertedIndexType] = indexer.load_index(index_path)
     if inverted_index is None:
         print("Failed to load index. Exiting evaluation.")
-        return None, None, None, None, None, None, None, None, 0
+        return None, None, None, None, None, None, None, None, None, 0, None
     print("Index loaded successfully.")
 
     # --- Store results for each config ---
     config_ap_scores: List[float] = []
-    config_p_at_k_scores: List[float] = []
     ngram_baseline_ap_scores: List[float] = []
-    ngram_baseline_p_at_k_scores: List[float] = []
     keyword_baseline_ap_scores: List[float] = []
-    keyword_baseline_p_at_k_scores: List[float] = []
+
+    # Store P@k scores as dictionaries {k: [list of scores]}
+    config_p_at_k_scores: Dict[int, List[float]] = {k: [] for k in K_VALUES}
+    ngram_baseline_p_at_k_scores: Dict[int, List[float]] = {k: [] for k in K_VALUES}
+    keyword_baseline_p_at_k_scores: Dict[int, List[float]] = {k: [] for k in K_VALUES}
+
     num_valid_queries: int = 0
 
     query_count: int = len(queries)
@@ -145,11 +160,7 @@ def run_evaluation(queries_path: str, index_path: str, k: int) -> Tuple[
         ranked_results_config: List[Tuple[str, float]] = searcher.rank_results(
             image_scores_config
         )
-        ranked_ids_config: List[str] = [res[0] for res in ranked_results_config]
-        ap_config = calculate_average_precision(ranked_ids_config, target_image_id)
-        pk_config = calculate_precision_at_k(ranked_ids_config, target_image_id, k)
-        config_ap_scores.append(ap_config)
-        config_p_at_k_scores.append(pk_config)
+        config_ranked_ids: List[str] = [res[0] for res in ranked_results_config]
 
         # --- Run 2: N-gram Baseline (Text Only) ---
         image_scores_ngram_baseline: Dict[str, float] = searcher.search_images(
@@ -161,17 +172,7 @@ def run_evaluation(queries_path: str, index_path: str, k: int) -> Tuple[
         ranked_results_ngram_baseline: List[Tuple[str, float]] = searcher.rank_results(
             image_scores_ngram_baseline
         )
-        ranked_ids_ngram_baseline: List[str] = [
-            res[0] for res in ranked_results_ngram_baseline
-        ]
-        ap_ngram_baseline = calculate_average_precision(
-            ranked_ids_ngram_baseline, target_image_id
-        )
-        pk_ngram_baseline = calculate_precision_at_k(
-            ranked_ids_ngram_baseline, target_image_id, k
-        )
-        ngram_baseline_ap_scores.append(ap_ngram_baseline)
-        ngram_baseline_p_at_k_scores.append(pk_ngram_baseline)
+        ngram_ranked_ids: List[str] = [res[0] for res in ranked_results_ngram_baseline]
 
         # --- Run 3: Keyword Baseline (Simple Text) ---
         # Note: Passes ngrams list, but searcher extracts words from it for keyword mode
@@ -184,218 +185,349 @@ def run_evaluation(queries_path: str, index_path: str, k: int) -> Tuple[
         ranked_results_keyword_baseline: List[Tuple[str, float]] = (
             searcher.rank_results(image_scores_keyword_baseline)
         )
-        ranked_ids_keyword_baseline: List[str] = [
+        keyword_ranked_ids: List[str] = [
             res[0] for res in ranked_results_keyword_baseline
         ]
-        ap_keyword_baseline = calculate_average_precision(
-            ranked_ids_keyword_baseline, target_image_id
-        )
-        pk_keyword_baseline = calculate_precision_at_k(
-            ranked_ids_keyword_baseline, target_image_id, k
-        )
-        keyword_baseline_ap_scores.append(ap_keyword_baseline)
-        keyword_baseline_p_at_k_scores.append(pk_keyword_baseline)
 
-    # --- Calculate Overall Metrics ---
+        # Calculate AP (k-independent)
+        ap_config = calculate_average_precision(config_ranked_ids, target_image_id)
+        ap_ngram = calculate_average_precision(ngram_ranked_ids, target_image_id)
+        ap_keyword = calculate_average_precision(keyword_ranked_ids, target_image_id)
+
+        config_ap_scores.append(ap_config)
+        ngram_baseline_ap_scores.append(ap_ngram)
+        keyword_baseline_ap_scores.append(ap_keyword)
+
+        # Calculate P@k for each k in K_VALUES
+        for k_val in K_VALUES:
+            pk_config = calculate_precision_at_k(
+                config_ranked_ids, target_image_id, k_val
+            )
+            pk_ngram = calculate_precision_at_k(
+                ngram_ranked_ids, target_image_id, k_val
+            )
+            pk_keyword = calculate_precision_at_k(
+                keyword_ranked_ids, target_image_id, k_val
+            )
+
+            config_p_at_k_scores[k_val].append(pk_config)
+            ngram_baseline_p_at_k_scores[k_val].append(pk_ngram)
+            keyword_baseline_p_at_k_scores[k_val].append(pk_keyword)
+
+    print("\nFinished processing queries.")
     if num_valid_queries == 0:  # Check if any queries were successfully processed
         print("Error: No queries were successfully evaluated.")
-        return None, None, None, None, None, None, None, None, 0
+        return None, None, None, None, None, None, None, None, None, 0, None
 
-    # Use np.mean for calculating averages, cast to float for type consistency
-    map_config: float = float(np.mean(config_ap_scores))
-    pk_config_mean: float = float(np.mean(config_p_at_k_scores))
-    map_ngram_baseline: float = float(np.mean(ngram_baseline_ap_scores))
-    pk_ngram_baseline_mean: float = float(np.mean(ngram_baseline_p_at_k_scores))
-    map_keyword_baseline: float = float(np.mean(keyword_baseline_ap_scores))
-    pk_keyword_baseline_mean: float = float(np.mean(keyword_baseline_p_at_k_scores))
+    # --- Calculate Mean Scores ---
+    mean_ap_config = float(np.mean(config_ap_scores).item())
+    mean_ap_ngram = float(np.mean(ngram_baseline_ap_scores).item())
+    mean_ap_keyword = float(np.mean(keyword_baseline_ap_scores).item())
 
-    # --- Perform Statistical Tests (Wilcoxon signed-rank test on AP scores) ---
-    print(
-        "\nPerforming statistical significance tests (Wilcoxon signed-rank) on AP scores..."
-    )
+    # Calculate mean P@k for each k
+    mean_pk_config_dict: Dict[int, float] = {
+        k: float(np.mean(scores).item()) for k, scores in config_p_at_k_scores.items()
+    }
+    mean_pk_ngram_dict: Dict[int, float] = {
+        k: float(np.mean(scores).item())
+        for k, scores in ngram_baseline_p_at_k_scores.items()
+    }
+    mean_pk_keyword_dict: Dict[int, float] = {
+        k: float(np.mean(scores).item())
+        for k, scores in keyword_baseline_p_at_k_scores.items()
+    }
 
-    # Test 1: Config vs N-gram Baseline
-    p_value_config_vs_ngram: Optional[float] = None
-    print("  Test 1: Current Config vs. N-gram Baseline")
-    ap_diff_config_ngram: List[float] = [
-        c - b
-        for c, b in zip(config_ap_scores, ngram_baseline_ap_scores)
-        if not (c == 0 and b == 0)
-    ]
-    wilcoxon_statistic: Optional[float] = None
-    if not ap_diff_config_ngram:
-        print(
-            "    Warning: No non-zero differences found. Cannot perform Wilcoxon test."
+    # --- Perform Statistical Tests ---
+    p_value_config_vs_ngram = None
+    p_value_ngram_vs_keyword = None
+    p_value_config_vs_keyword = None
+
+    try:
+        # Test 1: Config vs N-gram Baseline
+        diff_config_ngram = np.array(config_ap_scores) - np.array(
+            ngram_baseline_ap_scores
         )
-        p_value_config_vs_ngram = 1.0
-    else:
-        try:
-            wilcoxon_statistic, p_value_config_vs_ngram = wilcoxon(
-                ap_diff_config_ngram, alternative="greater"
+        # Filter out zero differences for Wilcoxon
+        non_zero_diff_config_ngram = diff_config_ngram[diff_config_ngram != 0]
+        if len(non_zero_diff_config_ngram) > 10:  # Need sufficient non-zero differences
+            stat, p_value_config_vs_ngram = wilcoxon(
+                non_zero_diff_config_ngram, alternative="greater"
             )
-            print(
-                f"    Wilcoxon test statistic: {wilcoxon_statistic:.4f}, p-value: {p_value_config_vs_ngram:.4f}"
-            )
-        except ValueError as e:
-            print(f"    Warning: Could not perform Wilcoxon test: {e}")
-            p_value_config_vs_ngram = 1.0
+        else:
+            print("Warning: Not enough non-zero differences for Config vs N-gram test.")
 
-    # Test 2: N-gram Baseline vs Keyword Baseline
-    p_value_ngram_vs_keyword: Optional[float] = None
-    print("\n  Test 2: N-gram Baseline vs. Keyword Baseline")
-    ap_diff_ngram_keyword: List[float] = [
-        n - k
-        for n, k in zip(ngram_baseline_ap_scores, keyword_baseline_ap_scores)
-        if not (n == 0 and k == 0)
-    ]
-    if not ap_diff_ngram_keyword:
-        print(
-            "    Warning: No non-zero differences found. Cannot perform Wilcoxon test."
+        # Test 2: N-gram Baseline vs Keyword Baseline
+        diff_ngram_keyword = np.array(ngram_baseline_ap_scores) - np.array(
+            keyword_baseline_ap_scores
         )
-        p_value_ngram_vs_keyword = 1.0
-    else:
-        try:
-            wilcoxon_statistic, p_value_ngram_vs_keyword = wilcoxon(
-                ap_diff_ngram_keyword, alternative="greater"
+        non_zero_diff_ngram_keyword = diff_ngram_keyword[diff_ngram_keyword != 0]
+        if len(non_zero_diff_ngram_keyword) > 10:
+            stat, p_value_ngram_vs_keyword = wilcoxon(
+                non_zero_diff_ngram_keyword, alternative="greater"
             )
+        else:
             print(
-                f"    Wilcoxon test statistic: {wilcoxon_statistic:.4f}, p-value: {p_value_ngram_vs_keyword:.4f}"
+                "Warning: Not enough non-zero differences for N-gram vs Keyword test."
             )
-        except ValueError as e:
-            print(f"    Warning: Could not perform Wilcoxon test: {e}")
-            p_value_ngram_vs_keyword = 1.0
+
+        # Test 3: Config vs Keyword Baseline
+        diff_config_keyword = np.array(config_ap_scores) - np.array(
+            keyword_baseline_ap_scores
+        )
+        non_zero_diff_config_keyword = diff_config_keyword[diff_config_keyword != 0]
+        if len(non_zero_diff_config_keyword) > 10:
+            stat, p_value_config_vs_keyword = wilcoxon(
+                non_zero_diff_config_keyword, alternative="greater"
+            )
+        else:
+            print(
+                "Warning: Not enough non-zero differences for Config vs Keyword test."
+            )
+
+    except Exception as e:
+        print(f"Error during statistical tests: {e}")
+        # Continue without p-values if tests fail
 
     print("--- Evaluation Complete ---")
+
     return (
-        map_config,
-        pk_config_mean,
-        map_ngram_baseline,
-        pk_ngram_baseline_mean,
-        map_keyword_baseline,
-        pk_keyword_baseline_mean,
+        mean_ap_config,
+        mean_pk_config_dict,
+        mean_ap_ngram,
+        mean_pk_ngram_dict,
+        mean_ap_keyword,
+        mean_pk_keyword_dict,
         p_value_config_vs_ngram,
         p_value_ngram_vs_keyword,
+        p_value_config_vs_keyword,
         num_valid_queries,
+        config_ap_scores
     )
 
 
 # --- Main Execution ---
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Evaluate Spatially-Aware Textual Image Search"
-    )
+        description="Evaluate SATIAS on validation queries")
     parser.add_argument(
         "--queries",
-        default=config.QUERIES_FILE,
-        help=f"Path to the queries JSON file (default: {config.QUERIES_FILE})",
+        type=str,
+        default="synthetic_data/metadata/queries.json",  # Correct default path
+        help="Path to the generated queries JSON file (default: synthetic_data/metadata/queries.json)",
     )
     parser.add_argument(
         "--index",
-        default=indexer.DEFAULT_INDEX_PATH,
-        help=f"Path to the search index file (default: {indexer.DEFAULT_INDEX_PATH})",
+        type=str,
+        default="synthetic_data/index.pkl",  # Correct default path
+        help="Path to the search index file (default: synthetic_data/index.pkl)",
     )
     parser.add_argument(
-        "-k",
-        type=int,
-        default=10,
-        help="Value of k for Precision@k and MAP calculation (default: 10)",
+        "--output",
+        type=str,
+        default="evaluation_results.json",
+        help="Path to save the evaluation results JSON (default: evaluation_results.json)",
     )
-
+    # Removed --k argument
     args = parser.parse_args()
 
-    (
-        map_config,
-        pk_config,
-        map_ngram,
-        pk_ngram,
-        map_keyword,
-        pk_keyword,
-        p_val1,
-        p_val2,
-        num_queries_eval,
-    ) = run_evaluation(args.queries, args.index, args.k)
-
-    if map_config is not None:  # Check if evaluation ran successfully
-        print(f"\n--- Evaluation Results (k={args.k}, N={num_queries_eval}) --- ")
-        # --- Print Table Header ---
-        print(
-            "+----------------------------+------------------+----------------+----------------+"
-        )
-        print(
-            "| Metric                     | Spatial N-gram   | N-gram Baseline| Keyword Baseline|"
-        )
-        print(
-            "+----------------------------+------------------+----------------+----------------+"
-        )
-        # --- Print MAP Results ---
-        print(
-            f"| Mean Average Precision (MAP@{args.k}) | {map_config:<16.4f} | {map_ngram:<14.4f} | {map_keyword:<15.4f} |"
-        )
-        # --- Print P@k Results ---
-        print(
-            f"| Mean Precision@k (P@{args.k})       | {pk_config:<16.4f} | {pk_ngram:<14.4f} | {pk_keyword:<15.4f} |"
-        )
-        print(
-            "+----------------------------+------------------+----------------+----------------+"
-        )
-
-        # --- Print Statistical Significance ---
-        if p_val1 is not None:
+    # Start sensitivity analysis
+    print("\nStarting Sensitivity Analysis on IoU/Proximity Weights (Original: 0.5/0.5)")
+    
+    # Original weights
+    original_iou_weight = config.IOU_WEIGHT
+    original_prox_weight = config.PROXIMITY_WEIGHT
+    
+    # Weight configurations to test
+    weight_configs = [
+        (0.0, 1.0),   # Only proximity
+        (0.25, 0.75), # More proximity, less IoU
+        (0.5, 0.5),   # Original balanced weights
+        (0.75, 0.25), # More IoU, less proximity
+        (1.0, 0.0),   # Only IoU
+    ]
+    
+    # Store AP scores from the default config for comparison
+    default_ap_scores = None
+    
+    # Loop through each weight configuration
+    for iou_weight, prox_weight in weight_configs:
+        config.IOU_WEIGHT = iou_weight
+        config.PROXIMITY_WEIGHT = prox_weight
+        
+        print(f"\n===== Running Evaluation with IoU Weight: {iou_weight:.2f}, Proximity Weight: {prox_weight:.2f} =====")
+        
+        (
+            map_config,
+            pk_config_dict,
+            map_ngram,
+            pk_ngram_dict,
+            map_keyword,
+            pk_keyword_dict,
+            p_val1,  # Cfg vs Ng
+            p_val2,  # Ng vs Key
+            p_val3,  # Cfg vs Key
+            num_queries_eval,
+            ap_scores,  # Store the AP scores for statistical comparison
+        ) = run_evaluation(args.queries, args.index)
+        
+        # Save metrics for this weight configuration
+        config_metrics = {
+            "iou_weight": iou_weight,
+            "proximity_weight": prox_weight,
+            "map": map_config,
+            "p@k": pk_config_dict,
+            "map_ngram": map_ngram,
+            "p@k_ngram": pk_ngram_dict,
+            "map_keyword": map_keyword,
+            "p@k_keyword": pk_keyword_dict
+        }
+        
+        # Add to sensitivity results
+        sensitivity_results["weight_configs"].append([iou_weight, prox_weight])
+        sensitivity_results["metrics"].append(config_metrics)
+        
+        # If this is the default 0.5/0.5 configuration, save the AP scores for comparison
+        if iou_weight == 0.5 and prox_weight == 0.5:
+            default_ap_scores = ap_scores
+            
+        if all(
+            v is not None
+            for v in [
+                map_config,
+                pk_config_dict,
+                map_ngram,
+                pk_ngram_dict,
+                map_keyword,
+                pk_keyword_dict,
+            ]
+        ):
+            # Display results as before
+            print(f"\n--- Evaluation Results (N={num_queries_eval}) --- ")
+            # --- Print Table Header ---
+            # Adjusted table width for readability
             print(
-                f"\nStat. Significance (Config vs N-gram Baseline - Wilcoxon on AP scores):"
+                "+----------------------------+------------------+-------------------+------------------+"
             )
-            print(f"  p-value = {p_val1:.4f}")
-            if p_val1 < 0.05:
+            print(
+                "| Metric                     | SATIAS           | N-gram Baseline   | Keyword Baseline |"
+            )
+            print(
+                "+----------------------------+------------------+-------------------+------------------+"
+            )
+            # --- Print MAP Results ---
+            # Renamed to MAP as it's k-independent here
+            print(
+                f"| Mean Average Precision (MAP) | {map_config:<16.4f} | {map_ngram:<17.4f} | {map_keyword:<16.4f} |"
+            )
+            print(
+                "+----------------------------+------------------+-------------------+------------------+"
+            )
+            # --- Print P@k Results for each k ---
+            for k_val in K_VALUES:
+                pk_c = pk_config_dict.get(k_val, float("nan"))
+                pk_n = pk_ngram_dict.get(k_val, float("nan"))  # Use safe var
+                pk_k = pk_keyword_dict.get(k_val, float("nan"))  # Use safe var
                 print(
-                    "  Result: The improvement of the Spatial N-gram Config over N-gram Baseline is STATISTICALLY SIGNIFICANT (p < 0.05)."
+                    f"| Mean Precision@{k_val:<10} | {pk_c:<16.4f} | {pk_n:<17.4f} | {pk_k:<16.4f} |"
+                )
+
+            print(
+                "+----------------------------+------------------+-------------------+------------------+"
+            )
+
+            # --- Print Statistical Significance ---
+            print("\nStatistical Significance (Wilcoxon Signed-Rank Test on AP scores):")
+            if p_val1 is not None:
+                result_1 = "SIGNIFICANT" if p_val1 < 0.05 else "NOT significant"
+                print(f"  * SATIAS vs. N-gram Baseline:      p={p_val1:<.4f} ({result_1})")
+            else:
+                print("  * SATIAS vs. N-gram Baseline:      Test could not be performed.")
+
+            if p_val2 is not None:
+                result_2 = "SIGNIFICANT" if p_val2 < 0.05 else "NOT significant"
+                print(
+                    f"  * N-gram Baseline vs. Keyword Baseline: p={p_val2:<.4f} ({result_2})"
                 )
             else:
                 print(
-                    "  Result: The difference between Spatial N-gram Config and N-gram Baseline is NOT statistically significant (p >= 0.05)."
+                    "  * N-gram Baseline vs. Keyword Baseline: Test could not be performed."
                 )
-        else:
-            print(
-                "\nStatistical Significance test (Config vs N-gram) could not be performed."
-            )
 
-        if p_val2 is not None:
-            print(
-                f"\nStat. Significance (N-gram Baseline vs Keyword Baseline - Wilcoxon on AP scores):"
-            )
-            print(f"  p-value = {p_val2:.4f}")
-            if p_val2 < 0.05:
+            if p_val3 is not None:
+                result_3 = "SIGNIFICANT" if p_val3 < 0.05 else "NOT significant"
                 print(
-                    "  Result: The improvement of the N-gram Baseline over Keyword Baseline is STATISTICALLY SIGNIFICANT (p < 0.05)."
+                    f"  * SATIAS vs. Keyword Baseline:       p={p_val3:<.4f} ({result_3})"
                 )
             else:
-                print(
-                    "  Result: The difference between N-gram Baseline and Keyword Baseline is NOT statistically significant (p >= 0.05)."
-                )
-        else:
+                print("  * SATIAS vs. Keyword Baseline:       Test could not be performed.")
+            print("----------------------------------------------------------------")
+
+            # --- Print Interpretation Guidance (Contextual) ---
+            print("\n--- Interpretation Guidance --- ")
             print(
-                "\nStatistical Significance test (N-gram vs Keyword) could not be performed."
+                " * Keyword Baseline = Simple word matching (score = # query words found)."
             )
-        print("----------------------------------------------------------------")
+            print(
+                " * N-gram Baseline = Non-spatial scoring (score based only on n-gram presence/length)."
+            )
+            print(
+                f" * SATIAS = Spatial scoring using weights from config.py (IOU: {config.IOU_WEIGHT}, Proximity: {config.PROXIMITY_WEIGHT})."
+            )
+            print(" * MAP closer to 1.0 is better (perfect ranking).")
+            for k_val in K_VALUES:
+                print(
+                    f" * P@{k_val} closer to {1.0/k_val:.2f} is better (correct item usually in top {k_val}). Max value is {1.0/k_val:.2f}."
+                )
+            print(
+                " * Statistically Significant means the observed difference in MAP is unlikely due to random chance alone for this query set."
+            )
+            print("----------------------------------------------------------------")
 
-        # --- Print Interpretation Guidance (Contextual) ---
-        print("\n--- Interpretation Guidance --- ")
-        print(
-            " * Keyword Baseline = Simple word matching (score = # query words found)."
-        )
-        print(
-            " * N-gram Baseline = Non-spatial scoring (score based only on n-gram presence/length)."
-        )
-        print(
-            " * Current Config = Spatial scoring using weights from config.py (IOU: {config.IOU_WEIGHT}, Proximity: {config.PROXIMITY_WEIGHT})."
-        )
-        print(
-            f" * MAP closer to 1.0 is better (perfect ranking). P@{args.k} closer to {1.0/args.k:.2f} is better (correct item usually in top {args.k})."
-        )
-        print(
-            " * Statistically Significant means the observed difference in MAP is unlikely due to random chance alone for this query set."
-        )
-        print("----------------------------------------------------------------")
+    # Restore original weights
+    config.IOU_WEIGHT = original_iou_weight
+    config.PROXIMITY_WEIGHT = original_prox_weight
+    print(f"\n===== Sensitivity Analysis Complete. Restored original weights (IoU: {original_iou_weight}, Prox: {original_prox_weight}) =====")
 
-    else:
-        print("\nEvaluation could not be completed due to errors.")
-        sys.exit(1)
+    # Statistical comparison against the default (0.5/0.5) for all configs
+    if default_ap_scores is not None:
+        print("\n===== Statistical Significance of Weight Differences (vs. 0.5/0.5) ====")
+        
+        # Add a new section in the results for statistical comparisons
+        sensitivity_results["statistical_comparisons"] = []
+        
+        for i, (iou_weight, prox_weight) in enumerate(weight_configs):
+            if iou_weight == 0.5 and prox_weight == 0.5:
+                continue  # Skip comparing default with itself
+                
+            config_ap_scores = sensitivity_results["metrics"][i].get("ap_scores", [])
+            
+            if config_ap_scores:  # Only if we have AP scores
+                try:
+                    diff = np.array(default_ap_scores) - np.array(config_ap_scores)
+                    non_zero_diff = diff[diff != 0]
+                    
+                    if len(non_zero_diff) > 10:
+                        stat, p_value = wilcoxon(non_zero_diff, alternative="greater")
+                        significant = p_value < 0.05
+                        print(f"  * 0.5/0.5 vs. {iou_weight:.2f}/{prox_weight:.2f}: p={p_value:.4f} ({'SIGNIFICANT' if significant else 'NOT significant'})")
+                        
+                        # Add to results
+                        sensitivity_results["statistical_comparisons"].append({
+                            "config1": [0.5, 0.5],
+                            "config2": [iou_weight, prox_weight],
+                            "p_value": float(p_value),
+                            "significant": significant
+                        })
+                    else:
+                        print(f"  * 0.5/0.5 vs. {iou_weight:.2f}/{prox_weight:.2f}: Not enough non-zero differences for test")
+                except Exception as e:
+                    print(f"  * Error comparing 0.5/0.5 vs. {iou_weight:.2f}/{prox_weight:.2f}: {e}")
+    
+    # Save sensitivity analysis results to JSON file
+    try:
+        with open(args.output, 'w') as f:
+            json.dump(sensitivity_results, f, indent=2)
+        print(f"\nSaved evaluation results to {args.output}")
+    except Exception as e:
+        print(f"Error saving results to JSON: {e}")

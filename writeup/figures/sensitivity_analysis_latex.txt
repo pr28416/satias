@@ -1,0 +1,6 @@
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\textwidth]{figures/sensitivity_analysis.pdf}
+    \caption{Sensitivity analysis of IoU and Proximity weight balance in SATIAS. The left plot shows Mean Average Precision (MAP) as a function of IoU weight (with Proximity weight = 1-IoU weight). The right plot shows Precision@k metrics. The optimal performance is achieved with an IoU-weighted balance (IoU: 0.75, Proximity: 0.25), indicating that while both spatial overlap and center proximity are important factors, the degree of overlap (IoU) has slightly more impact on retrieval performance than proximity.}
+    \label{fig:sensitivity}
+\end{figure}
