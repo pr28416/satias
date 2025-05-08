@@ -1,0 +1,16 @@
+\begin{table}[htbp]
+    \centering
+    \caption{Performance Comparison of Different Spatial Indexing Methods}
+    \begin{tabular}{|l|c|c|c|c|c|c|c|}
+\hline
+    \textbf{Method} & \textbf{Build Time (s)} & \textbf{Query Time (ms)} & \textbf{Size (MB)} & 
+    \textbf{MAP} & \textbf{P@1} & \textbf{P@5} & \textbf{P@10} \\
+\hline
+    Standard & 5.23 & 1.14 & 69.13 & 0.5827 & 0.5000 & 0.1200 & 0.0800 \\
+    Rtree & 9.76 & 250.10 & 150.16 & 0.3856 & 0.2222 & 0.1111 & 0.0667 \\
+    Quadtree & 8.86 & 0.48 & 76.06 & 0.3629 & 0.2000 & 0.1200 & 0.0700 \\
+    Grid & 11.57 & 0.17 & 85.87 & 0.4533 & 0.4000 & 0.1200 & 0.0600 \\
+\hline
+    \end{tabular}
+    \label{tab:spatial-index-comparison}
+\end{table}

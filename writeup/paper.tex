@@ -249,22 +249,22 @@ Table~\ref{tab:approaches} provides a comprehensive comparison of various spatia
     \label{tab:approaches}
     \begin{tabular}{p{2.8cm}p{2.8cm}p{4.5cm}p{3.4cm}}
         \toprule
-        Approach                                           & Query Type                & Key Characteristics                                                                & Strengths/Weaknesses                 \\
+        Approach                                     & Query Type                & Key Characteristics                                                           & Strengths/Weaknesses                 \\
         \midrule
-        Foundational Text-in-Image (Manmatha et al., 2000) & Keywords                  & Text as document metadata; Inverted Index; Keyword matching                        & (+) Established base approach        \\
-                                                           &                           &                                                                                    & (-) No spatial awareness             \\
+        Foundational Text-in-Image~\cite{Manmatha00} & Keywords                  & Text as document metadata; Inverted Index; Keyword matching                   & (+) Established base approach        \\
+                                                     &                           &                                                                               & (-) No spatial awareness             \\
         \midrule
-        Explicit Spatial-Semantic (Mai et al., 2017)       & Text-boxes on canvas      & User-defined layout; Visual Feature Index; Feature similarity                      & (+) Flexible canvas input            \\
-                                                           &                           &                                                                                    & (-) Less precise text matching       \\
+        Explicit Spatial-Semantic~\cite{Mai17}       & Text-boxes on canvas      & User-defined layout; Visual Feature Index; Feature similarity                 & (+) Flexible canvas input            \\
+                                                     &                           &                                                                               & (-) Less precise text matching       \\
         \midrule
-        VSE / Attention Models                             & Text Query                & Implicit spatial via embeddings; Learned attention mechanisms \cite{Faghri18VSEpp} & (+) Strong semantic understanding    \\
-                                                           &                           &                                                                                    & (-) No explicit spatial queries      \\
+        VSE / Attention Models~\cite{Faghri17}       & Text Query                & Implicit spatial via embeddings; Learned attention mechanisms & (+) Strong semantic understanding    \\
+                                                     &                           &                                                                               & (-) No explicit spatial queries      \\
         \midrule
-        MLLMs (KOSMOS-2, Groma)                            & Natural Language          & Learned mechanisms; End-to-end approach                                            & (+) Semantic flexibility             \\
-                                                           &                           &                                                                                    & (-) Black-box reasoning              \\
+        MLLMs (KOSMOS-2, Groma)                      & Natural Language          & Learned mechanisms; End-to-end approach                                       & (+) Semantic flexibility             \\
+                                                     &                           &                                                                               & (-) Black-box reasoning              \\
         \midrule
-        Our Approach                                       & N-grams + Optional Region & Normalized Bounding Boxes; Explicit IoU + proximity scoring                        & (+) Interpretable; Precise           \\
-                                                           &                           &                                                                                    & (-) Limited semantics; OCR dependent \\
+        Our Approach                                 & N-grams + Optional Region & Normalized Bounding Boxes; Explicit IoU + proximity scoring                   & (+) Interpretable; Precise           \\
+                                                     &                           &                                                                               & (-) Limited semantics; OCR dependent \\
         \bottomrule
     \end{tabular}
 \end{table*}
@@ -398,8 +398,53 @@ To assess the significance of these results, we performed pairwise Wilcoxon sign
 
 All p-values are less than 0.0001, indicating that the observed differences are highly statistically significant. The 95\% confidence intervals for MAP were [0.669, 0.673] for SATIAS, [0.209, 0.213] for N-gram Baseline, and [0.031, 0.032] for Keyword Baseline. For P@1, the 95\% confidence intervals were [0.599, 0.602] for SATIAS, [0.148, 0.150] for N-gram Baseline, and [0.0066, 0.0068] for Keyword Baseline. For P@5, the 95\% confidence intervals were [0.147, 0.150] for SATIAS, [0.045, 0.047] for N-gram Baseline, and [0.0059, 0.0063] for Keyword Baseline. For P@10, the 95\% confidence intervals were [0.078, 0.081] for SATIAS, [0.031, 0.033] for N-gram Baseline, and [0.0056, 0.0060] for Keyword Baseline.
 
-In summary, SATIAS achieved a MAP of 0.6711 (95\% CI: [0.669, 0.673]), a P@1 of 0.6006 (95\% CI: [0.599, 0.602]), a P@5 of 0.1487 (95\% CI: [0.147, 0.150]), and a P@10 of 0.0795 (95\% CI: [0.078, 0.081]), all of which are significantly higher than the N-gram Baseline (MAP: 0.2110, P@1: 0.1490, P@5: 0.0459, P@10: 0.0324) and the Keyword Baseline (MAP: 0.0312, P@1: 0.0067, P@5: 0.0061, P@10: 0.0058), with all pairwise differences being highly statistically significant (p < 0.0001).
+Overall, SATIAS achieved a MAP of 0.6711 (95\% CI: [0.669, 0.673]), a P@1 of 0.6006 (95\% CI: [0.599, 0.602]), a P@5 of 0.1487 (95\% CI: [0.147, 0.150]), and a P@10 of 0.0795 (95\% CI: [0.078, 0.081]), all of which are significantly higher than the N-gram Baseline (MAP: 0.2110, P@1: 0.1490, P@5: 0.0459, P@10: 0.0324) and the Keyword Baseline (MAP: 0.0312, P@1: 0.0067, P@5: 0.0061, P@10: 0.0058), with all pairwise differences being highly statistically significant (p < 0.0001).
 \textbf{Notably, in terms of relative performance based on MAP, SATIAS outperformed the N-gram Baseline by a factor of over 3 and the Keyword Baseline by a factor of over 21.}
+
+\section{Index Structure Exploration}
+\label{sec:index_exploration}
+
+\paragraph{Motivation} While developing SATIAS's full retrieval pipeline, we conducted a thorough exploration of different indexing structures to determine the most effective approach for our specific task. While spatial indices like R-trees are commonly used for geometric queries, our task uniquely combines both textual and spatial components. We compared four index types: (1) a standard inverted index mapping n-grams to image-bbox pairs, (2) an R-tree spatial index, (3) a quadtree spatial index, and (4) a grid-based spatial index.
+
+\paragraph{Implementation} The standard inverted index maps each n-gram to a list of (image\_id, bbox) pairs. The R-tree implementation uses the \verb|rtree| package to index normalized bounding boxes, with each box associated with its n-gram and image. The quadtree approach divides the image space into four quadrants recursively, maintaining separate n-gram indices for each quadrant. The grid-based approach partitions the space into a fixed $10\times10$ grid, with each cell maintaining its own n-gram index.
+
+\paragraph{Evaluation Metrics} We evaluated these indices on:
+\begin{itemize}
+    \item Build time: Time to construct the index from raw metadata
+    \item Query time: Average time per query
+    \item Index size: Memory footprint
+    \item Retrieval accuracy: Mean Average Precision (MAP) and Precision@k
+\end{itemize}
+
+\paragraph{Results} Our experiments revealed several key insights (Figure~\ref{fig:index_comparison}):
+
+\begin{itemize}
+    \item The standard inverted index significantly outperformed spatial indices in build time (5.2s vs 9.8-11.6s), index size (69MB vs 76-150MB), and retrieval accuracy (MAP 0.58 vs 0.36-0.45).
+    \item While spatial indices showed faster query times (0.16-0.25ms vs 1.14ms), the absolute difference was negligible for our application.
+    \item The R-tree index, while theoretically appealing, showed several practical limitations:
+          \begin{itemize}
+              \item Highest memory usage (150MB)
+              \item Lowest retrieval accuracy (MAP 0.39)
+              \item Edge case failures for queries near image boundaries
+          \end{itemize}
+    \item Quadtree and grid indices performed better than R-tree but still fell short of the standard index in accuracy and build efficiency.
+\end{itemize}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{../output/benchmark/benchmark_results.png}
+    \caption{Performance comparison of different index types. The standard inverted index outperforms spatial indices (R-tree, Quadtree, Grid) in most metrics despite slightly slower query times. Build time (seconds), index size (MB), and MAP scores are shown on a logarithmic scale for better visualization.}
+    \label{fig:index_comparison}
+\end{figure}
+
+\paragraph{Discussion} These results demonstrate that for text-centric spatial retrieval tasks, the standard inverted index is surprisingly more effective than specialized spatial indices. We hypothesize this is because:
+\begin{itemize}
+    \item Our queries prioritize exact n-gram matches, which the inverted index directly optimizes for
+    \item Spatial filtering often eliminates valid matches due to normalization artifacts and edge cases
+    \item The overhead of maintaining complex spatial structures outweighs their theoretical benefits for our specific use case
+\end{itemize}
+
+Based on these findings, SATIAS uses the standard inverted index as its core data structure, with spatial relationships evaluated during the scoring phase rather than during initial retrieval. This choice optimizes for both accuracy and practical efficiency.
 
 \section{Visualization Tool}
 
@@ -415,7 +460,7 @@ To complement the quantitative evaluation, an interactive GUI tool was developed
 \section{Discussion}
 \label{sec:discussion}
 
-The results clearly demonstrate that incorporating explicit spatial constraints significantly enhances text retrieval in image documents, moving beyond simple keyword or n-gram frequency. The dramatic performance increase of SATIAS over non-spatial baselines (Table~\ref{tab:results}) confirms that spatial context is not merely supplementary but often essential for accurately interpreting user intent, particularly for queries targeting specific document regions.
+The results demonstrate that incorporating explicit spatial constraints significantly enhances text retrieval in image documents, moving beyond simple keyword or n-gram frequency. The dramatic performance increase of SATIAS over non-spatial baselines (Table~\ref{tab:results}) confirms that spatial context is not merely supplementary but often essential for accurately interpreting user intent, particularly for queries targeting specific document regions.
 
 \textbf{Beyond Basic Matching: The Value of Spatial Semantics.} The core contribution lies in treating spatial arrangement as a primary semantic signal. While the N-gram baseline identifies *if* text exists, SATIAS determines *if* it exists *where* the user expects it. This shift aligns more closely with how humans interact with visual documents, understanding that the location of information often dictates its role and significance (e.g., a figure caption vs. main body text). The high P@1 score suggests SATIAS effectively captures this spatial semantic alignment for the most relevant result. The performance difference isn't just about filtering; it's about understanding a fundamentally different type of query that integrates textual and spatial intent.
 
