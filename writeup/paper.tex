@@ -37,7 +37,7 @@
 %% command.
 %%yes l
 
-\documentclass[manuscript,screen]{acmart}
+\documentclass[sigconf,screen]{acmart}
 
 \usepackage{graphicx} % Required for \resizebox, \includegraphics
 \usepackage{standalone} % Required for \includestandalone
@@ -124,22 +124,13 @@
     \country{USA}
 }
 
-\author{Giovanni D'Antonio}
-\email{giovannidantonio@college.harvard.edu}
-\affiliation{%
-    \institution{Harvard University}
-    \city{Cambridge}
-    \state{MA}
-    \country{USA}
-}
-
 %%
 %% By default, the full list of authors will be used in the page
 %% headers. Often, this list is too long, and will overlap
 %% other information printed in the page headers. This command allows
 %% the author to define a more concise list
 %% of authors' names for this purpose.
-\renewcommand{\shortauthors}{Ramesh et al.}
+\renewcommand{\shortauthors}{Ramesh and Cassim}
 
 %%
 %% The abstract is a short summary of the work to be presented in the
@@ -306,17 +297,18 @@ For the spatial component, the system parses an optional region string parameter
 
 \paragraph{Process} The search process begins with the initialization of an image score accumulator, mapping each image ID to a score, initially zero. The overall score for an image $I$ given a query $Q = (Q_{text}, Q_{bbox})$ can be conceptually represented as:
 \[
-    \text{Score}(I, Q) = \sum_{q \in Q_{text}} \sum_{\text{occ} \in \text{Occ}(q, I)} \text{SpatialRel}(Q_{bbox}, \text{occ}_{bbox}) \times \text{Weight}(\text{len}(q))
+    S(I, Q) = \sum_{q \,\in\, Q_t} \;\sum_{o \,\in\, O(q,\, I)}
+    f\!\left(B_Q,\, B_o\right) \cdot w\!\left(\lvert q \rvert\right)
 \]
-where $Q_{text}$ is the set of query n-grams, $\text{Occ}(q, I)$ are occurrences of n-gram $q$ in image $I$ with bounding box $\text{occ}_{bbox}$, $\text{SpatialRel}$ is the spatial relevance function, and $\text{Weight}$ depends on n-gram length.
+where $Q_t$ is the set of query n-grams, $O(q, I)$ is the set of occurrences of n-gram $q$ in image $I$, $B_Q$ and $B_o$ are the query and occurrence bounding boxes respectively, $f$ is the spatial relevance function, and $w$ is a weighting function over n-gram length.
 
-For each query n-gram $q \in Q_{text}$, the system performs a lookup in the inverted index to retrieve all occurrences $\text{occ} \in \text{Occ}(q, I)$ across the indexed images (as shown in the online search phase of Figure~\ref{fig:satias_workflow}). When a query n-gram is found, the algorithm iterates through each occurrence, represented as a tuple of image identifier and normalized bounding box $\text{occ}_{bbox}$.
+For each query n-gram $q \in Q_t$, the system performs a lookup in the inverted index to retrieve all occurrences $o \in O(q, I)$ across the indexed images (as shown in the online search phase of Figure~\ref{fig:satias_workflow}). When a query n-gram is found, the algorithm iterates through each occurrence, represented as a tuple of image identifier and normalized bounding box $B_o$.
 
-The scoring mechanism first determines the appropriate spatial relevance component, $\text{SpatialRel}(Q_{bbox}, \text{occ}_{bbox})$. For baseline non-spatial searches or when the query doesn't specify a region of interest (using the default full-image bounding box, $Q_{bbox}$), this component is set to 1.0, effectively ignoring spatial factors. However, when processing spatially-aware queries with specific target regions ($Q_{bbox}$), the system employs a sophisticated dual-metric approach. It calculates the Intersection over Union (IoU) between $Q_{bbox}$ and $\text{occ}_{bbox}$, which quantifies the degree of overlap. Simultaneously, it computes a proximity score based on the distance between centroids of $Q_{bbox}$ and $\text{occ}_{bbox}$, using an exponential decay function that rewards closer matches. These two metrics are then combined into a single spatial score using configurable weights (typically equal weights of 0.5 each): $\text{SpatialRel} = w_{iou} \times \text{IoU} + w_{prox} \times \text{Proximity}$. This hybrid approach effectively addresses the limitations of using either metric in isolation—IoU fails to reward nearby non-overlapping matches, while proximity alone would ignore the extent of overlap and relative sizes.
+The scoring mechanism first determines the spatial relevance component, $f(B_Q, B_o)$. For baseline non-spatial searches or when the query doesn't specify a region of interest (using the default full-image bounding box), this component is set to 1.0, effectively ignoring spatial factors. However, when processing spatially-aware queries with a specific target region $B_Q$, the system employs a dual-metric approach. It calculates the Intersection over Union (IoU) between $B_Q$ and $B_o$, which quantifies the degree of overlap. Simultaneously, it computes a proximity score based on the distance between centroids of $B_Q$ and $B_o$, using an exponential decay function that rewards closer matches. These two metrics are then combined into a single spatial score using configurable weights (typically equal weights of 0.5 each): $f = w_{\text{iou}} \cdot \text{IoU} + w_{\text{prox}} \cdot \text{Proximity}$. This hybrid approach effectively addresses the limitations of using either metric in isolation—IoU fails to reward nearby non-overlapping matches, while proximity alone would ignore the extent of overlap and relative sizes.
 
-The algorithm then weights this spatial relevance by the n-gram length, $\text{Weight}(\text{len}(q))$, recognizing that longer matching phrases should contribute more significantly to relevance than shorter ones. This weighted score is added to the accumulated score for the corresponding image $I$. After processing all query n-grams and their occurrences, the system sorts the image scores in descending order and returns a ranked list of images with their relevance scores, representing the most relevant images for the given query.
+The algorithm then weights this spatial relevance by the n-gram length, $w(\lvert q \rvert)$, recognizing that longer matching phrases should contribute more significantly to relevance than shorter ones. This weighted score is added to the accumulated score for the corresponding image $I$. After processing all query n-grams and their occurrences, the system sorts the image scores in descending order and returns a ranked list of images with their relevance scores, representing the most relevant images for the given query.
 
-This scoring approach provides a balance between textual and spatial relevance, with the configurable weights ($w_{iou}, w_{prox}$) offering flexibility to adjust the importance of exact overlap versus general proximity based on specific application needs. The n-gram length weighting further enhances discrimination, favoring images containing more specific, longer matching phrases over those with only short, potentially more ambiguous matches.
+This scoring approach provides a balance between textual and spatial relevance, with the configurable weights ($w_{\text{iou}}, w_{\text{prox}}$) offering flexibility to adjust the importance of exact overlap versus general proximity based on specific application needs. The n-gram length weighting further enhances discrimination, favoring images containing more specific, longer matching phrases over those with only short, potentially more ambiguous matches.
 
 \subsection{Synthetic Dataset Generation}
 \label{sec:synthetic_data}
@@ -521,6 +513,9 @@ To ensure reproducibility and foster further research in spatial text retrieval,
 %% (and NOT an unnumbered section). This ensures the proper
 %% identification of the section in the article metadata, and the
 %% consistent spelling of the heading.
+\section*{Author Contributions}
+P. Ramesh conceived the project, designed and implemented the search engine and indexing system, developed the synthetic data generation pipeline, conducted the evaluation and sensitivity analysis, built the visualization tool, and wrote the majority of the paper. M.Z. Cassim contributed the Prior Work section.
+
 \begin{acks}
 
 \end{acks}
